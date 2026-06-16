@@ -1,0 +1,203 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PlatformRole {
+  REGULATOR
+  MANUFACTURER
+  DISTRIBUTOR
+  PHARMACY
+  CLINIC
+  HOSPITAL
+  PRACTITIONER
+}
+
+enum VerificationStatus {
+  DRAFT
+  PENDING
+  IN_REVIEW
+  VERIFIED
+  REJECTED
+  SUSPENDED
+  EXPIRED
+}
+
+enum CheckStatus {
+  PENDING
+  PASSED
+  FAILED
+  MANUAL_REVIEW
+}
+
+model User {
+  id                  String                @id @default(uuid()) @db.Uuid
+  email               String                @unique
+  fullName            String
+  phone               String?
+  mfaEnabled          Boolean               @default(false)
+  createdAt           DateTime              @default(now())
+  claims              VerificationClaim[]   @relation("ClaimApplicant")
+  reviews             VerificationClaim[]   @relation("ClaimReviewer")
+  entitlements        RoleEntitlement[]
+  organizationMembers OrganizationMember[]
+}
+
+model Organization {
+  id             String                @id @default(uuid()) @db.Uuid
+  legalName      String
+  registrationNo String?
+  type           PlatformRole
+  verificationStatus VerificationStatus @default(PENDING)
+  createdAt      DateTime              @default(now())
+  members        OrganizationMember[]
+  claims         VerificationClaim[]
+  entitlements   RoleEntitlement[]
+  products       Product[]
+}
+
+model OrganizationMember {
+  userId         String       @db.Uuid
+  organizationId String       @db.Uuid
+  title          String?
+  user            User         @relation(fields: [userId], references: [id])
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  @@id([userId, organizationId])
+}
+
+model VerificationClaim {
+  id               String             @id @default(uuid()) @db.Uuid
+  userId           String             @db.Uuid
+  organizationId   String             @db.Uuid
+  requestedRole    PlatformRole
+  regulator        String
+  licenseNumber    String
+  status           VerificationStatus @default(DRAFT)
+  reviewedById     String?            @db.Uuid
+  reviewedAt       DateTime?
+  reviewReason     String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  user             User               @relation("ClaimApplicant", fields: [userId], references: [id])
+  reviewer         User?              @relation("ClaimReviewer", fields: [reviewedById], references: [id])
+  organization     Organization       @relation(fields: [organizationId], references: [id])
+  checks           VerificationCheck[]
+  evidence         VerificationEvidence[]
+  entitlement      RoleEntitlement?
+  @@index([status, requestedRole, createdAt])
+  @@index([regulator, licenseNumber])
+}
+
+model VerificationCheck {
+  id        String       @id @default(uuid()) @db.Uuid
+  claimId   String       @db.Uuid
+  checkType String
+  status    CheckStatus  @default(PENDING)
+  provider  String?
+  result    Json?
+  checkedAt DateTime?
+  expiresAt DateTime?
+  claim     VerificationClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  @@unique([claimId, checkType])
+}
+
+model VerificationEvidence {
+  id          String   @id @default(uuid()) @db.Uuid
+  claimId     String   @db.Uuid
+  evidenceType String
+  s3Key       String
+  sha256      String
+  mimeType    String
+  virusScanStatus String
+  createdAt   DateTime @default(now())
+  claim       VerificationClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+}
+
+model RoleEntitlement {
+  id             String             @id @default(uuid()) @db.Uuid
+  userId         String             @db.Uuid
+  organizationId String             @db.Uuid
+  role           PlatformRole
+  status         VerificationStatus @default(VERIFIED)
+  sourceClaimId  String             @unique @db.Uuid
+  grantedAt      DateTime           @default(now())
+  expiresAt      DateTime?
+  user           User               @relation(fields: [userId], references: [id])
+  organization   Organization       @relation(fields: [organizationId], references: [id])
+  sourceClaim    VerificationClaim  @relation(fields: [sourceClaimId], references: [id])
+  @@unique([userId, organizationId, role])
+  @@index([status, expiresAt])
+}
+
+model Product {
+  id             String       @id @default(uuid()) @db.Uuid
+  gtin           String       @unique
+  name           String
+  genericName    String?
+  manufacturerId String       @db.Uuid
+  manufacturer   Organization @relation(fields: [manufacturerId], references: [id])
+  batches        Batch[]
+}
+
+model Batch {
+  id             String         @id @default(uuid()) @db.Uuid
+  batchNumber    String
+  productId      String         @db.Uuid
+  manufacturedAt DateTime
+  expiresAt      DateTime
+  status         String
+  product        Product        @relation(fields: [productId], references: [id])
+  units          MedicineUnit[]
+  @@unique([productId, batchNumber])
+  @@index([expiresAt, status])
+}
+
+model MedicineUnit {
+  id                 String         @id @default(uuid()) @db.Uuid
+  serial             String         @unique
+  batchId            String         @db.Uuid
+  status             String
+  currentCustodianId String?        @db.Uuid
+  createdAt          DateTime       @default(now())
+  batch              Batch          @relation(fields: [batchId], references: [id])
+  custodyEvents      CustodyEvent[]
+  @@index([batchId, status])
+  @@index([currentCustodianId, status])
+}
+
+model CustodyEvent {
+  id                     String   @id @db.Uuid
+  medicineUnitId         String   @db.Uuid
+  actorId                 String   @db.Uuid
+  senderOrganizationId   String?  @db.Uuid
+  receiverOrganizationId String   @db.Uuid
+  eventType               String
+  quantity                Int
+  latitude                Decimal  @db.Decimal(9, 6)
+  longitude               Decimal  @db.Decimal(9, 6)
+  occurredAt              DateTime
+  previousHash            String?
+  eventHash               String   @unique
+  medicineUnit            MedicineUnit @relation(fields: [medicineUnitId], references: [id])
+  @@index([medicineUnitId, occurredAt])
+  @@index([receiverOrganizationId, occurredAt])
+}
+
+model OutboxEvent {
+  id            String   @id @db.Uuid
+  eventType     String
+  aggregateType String
+  aggregateId   String
+  actorId       String   @db.Uuid
+  occurredAt    DateTime
+  payload       Json
+  eventHash     String
+  publishedAt   DateTime?
+  attempts      Int      @default(0)
+  @@index([publishedAt, occurredAt])
+  @@index([aggregateType, aggregateId])
+}

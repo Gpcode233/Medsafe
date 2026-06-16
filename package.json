@@ -1,0 +1,15 @@
+{
+  "name": "medsafe",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w @medsafe/web\" \"npm run start:dev -w @medsafe/api\"",
+    "build": "npm run build -w @medsafe/contracts && npm run build -w @medsafe/api && npm run build -w @medsafe/web",
+    "test": "npm run test -w @medsafe/api",
+    "db:generate": "npm run db:generate -w @medsafe/api",
+    "db:migrate": "npm run db:migrate -w @medsafe/api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
