@@ -1,9 +1,10 @@
 import type { NextConfig } from "next";
-import { fileURLToPath } from "node:url";
+import path from "node:path";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   turbopack: {
-    root: fileURLToPath(new URL("../..", import.meta.url)),
+    root: path.resolve(__dirname, "../.."),
   },
 };
 
