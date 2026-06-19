@@ -1,55 +1,18 @@
 "use client";
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Archive, Bell, Buildings, CaretDown, ChartBar, CheckCircle, ClipboardText,
+  ClockCounterClockwise, Factory, FileText, FirstAid, Funnel, IdentificationCard,
+  List, MagnifyingGlass, MapTrifold, Package, Plus, QrCode, ShieldCheck, SignOut,
+  Siren, SlidersHorizontal, Truck, UserCircle, UsersThree, Warning, X
+} from "@/components/solar-icons";
 import { createElement, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 type Role = "Regulator" | "Manufacturer" | "Pharmacist" | "Hospital" | "Clinic" | "Dispenser";
 type PageKey = "overview" | "alerts" | "shipments" | "inventory" | "trace" | "entities" | "compliance" | "reports" | "recalls" | "audit" | "verify";
 type Session = { name: string; email: string; role: Role; verified: boolean };
 type Icon = (props: { size?: number; weight?: "regular" | "duotone" | "fill"; className?: string }) => ReactNode;
-
-function appIcon(label: string): Icon {
-  return function AppIcon({ size = 20, weight = "duotone", className }) {
-    return (
-      <span
-        className={`app-icon ${weight === "fill" ? "app-icon-fill" : ""} ${className || ""}`}
-        style={{ width: size, height: size, fontSize: Math.max(10, Math.round(size * 0.48)) }}
-        aria-hidden="true"
-      >
-        {label}
-      </span>
-    );
-  };
-}
-
-const ShieldCheck = appIcon("SC");
-const Factory = appIcon("MF");
-const FirstAid = appIcon("MD");
-const Buildings = appIcon("HP");
-const IdentificationCard = appIcon("ID");
-const MapTrifold = appIcon("MP");
-const Siren = appIcon("AL");
-const Truck = appIcon("TR");
-const Archive = appIcon("IV");
-const ClockCounterClockwise = appIcon("TL");
-const ChartBar = appIcon("CH");
-const Package = appIcon("PK");
-const FileText = appIcon("DC");
-const QrCode = appIcon("QR");
-const ClipboardText = appIcon("RP");
-const Bell = appIcon("NT");
-const CaretDown = appIcon("V");
-const CheckCircle = appIcon("OK");
-const Plus = appIcon("+");
-const MagnifyingGlass = appIcon("S");
-const Funnel = appIcon("FL");
-const SignOut = appIcon("LO");
-const SlidersHorizontal = appIcon("SL");
-const UserCircle = appIcon("US");
-const UsersThree = appIcon("GR");
-const Warning = appIcon("!");
-const X = appIcon("X");
-const List = appIcon("M");
 
 const roles: { role: Role; label: string; description: string; icon: Icon }[] = [
   { role: "Regulator", label: "Regulator", description: "National or state medicine oversight", icon: ShieldCheck },

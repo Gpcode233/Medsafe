@@ -2,6 +2,7 @@
 
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { ComponentProps, ReactNode } from "react";
+import { AltArrowDown, AltArrowUp, CheckCircle } from "@/components/solar-icons";
 
 export function Select(props: ComponentProps<typeof SelectPrimitive.Root>) {
   return <SelectPrimitive.Root {...props} />;
@@ -22,7 +23,9 @@ export function SelectTrigger({
       {startIcon && <span className="ui-select-prefix">{startIcon}</span>}
       <span className="ui-select-value">{children}</span>
       <SelectPrimitive.Icon asChild>
-        <span className="select-icon" aria-hidden="true">v</span>
+        <span className="select-icon" aria-hidden="true">
+          <AltArrowDown size={16} weight="duotone" aria-hidden="true" />
+        </span>
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   );
@@ -43,13 +46,13 @@ export function SelectContent({
         {...props}
       >
         <SelectPrimitive.ScrollUpButton className="ui-select-scroll-button">
-          <span aria-hidden="true">^</span>
+          <AltArrowUp size={15} weight="duotone" aria-hidden="true" />
         </SelectPrimitive.ScrollUpButton>
         <SelectPrimitive.Viewport className="ui-select-viewport">
           {children}
         </SelectPrimitive.Viewport>
         <SelectPrimitive.ScrollDownButton className="ui-select-scroll-button">
-          <span aria-hidden="true">v</span>
+          <AltArrowDown size={15} weight="duotone" aria-hidden="true" />
         </SelectPrimitive.ScrollDownButton>
       </SelectPrimitive.Content>
     </SelectPrimitive.Portal>
@@ -65,7 +68,7 @@ export function SelectItem({
     <SelectPrimitive.Item className={`ui-select-item ${className}`} {...props}>
       <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
       <SelectPrimitive.ItemIndicator className="ui-select-indicator">
-        <span aria-hidden="true">✓</span>
+        <CheckCircle size={16} weight="fill" aria-hidden="true" />
       </SelectPrimitive.ItemIndicator>
     </SelectPrimitive.Item>
   );
