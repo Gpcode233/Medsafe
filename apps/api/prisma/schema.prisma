@@ -138,9 +138,13 @@ model Product {
   gtin           String       @unique
   name           String
   genericName    String?
+  maxRetailPrice Decimal?     @db.Decimal(10, 2)
+  isControlled   Boolean      @default(false)
+  scheduleClass  String?
   manufacturerId String       @db.Uuid
   manufacturer   Organization @relation(fields: [manufacturerId], references: [id])
   batches        Batch[]
+  prescriptions  Prescription[]
 }
 
 model Batch {
@@ -165,8 +169,50 @@ model MedicineUnit {
   createdAt          DateTime       @default(now())
   batch              Batch          @relation(fields: [batchId], references: [id])
   custodyEvents      CustodyEvent[]
+  hmoClaims          HmoClaim[]
+  prescriptions      Prescription[]
   @@index([batchId, status])
   @@index([currentCustodianId, status])
+}
+
+model Prescription {
+  id              String        @id @default(uuid()) @db.Uuid
+  patientHash     String
+  prescriberId    String        @db.Uuid
+  productId       String        @db.Uuid
+  medicineUnitId  String?       @db.Uuid
+  dosage          String
+  status          String        @default("ACTIVE")
+  createdAt       DateTime      @default(now())
+  dispensedAt     DateTime?
+  product         Product       @relation(fields: [productId], references: [id])
+  medicineUnit    MedicineUnit? @relation(fields: [medicineUnitId], references: [id])
+  @@index([patientHash, status])
+}
+
+model HmoClaim {
+  id                 String       @id @default(uuid()) @db.Uuid
+  claimNumber        String       @unique
+  hmoCode            String
+  medicineUnitId     String       @db.Uuid
+  claimedAmount      Decimal      @db.Decimal(10, 2)
+  verificationStatus String       @default("VERIFIED")
+  eventHash          String
+  createdAt          DateTime     @default(now())
+  medicineUnit       MedicineUnit @relation(fields: [medicineUnitId], references: [id])
+}
+
+model Premises {
+  id                 String             @id @default(uuid()) @db.Uuid
+  name               String
+  pcnLicenseNumber   String             @unique
+  facilityType       String
+  address            String
+  state              String
+  latitude           Decimal            @db.Decimal(9, 6)
+  longitude          Decimal            @db.Decimal(9, 6)
+  verificationStatus VerificationStatus @default(VERIFIED)
+  createdAt          DateTime           @default(now())
 }
 
 model CustodyEvent {

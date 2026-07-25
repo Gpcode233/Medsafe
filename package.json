@@ -7,7 +7,8 @@
     "build": "npm run build -w @medsafe/contracts && npm run build -w @medsafe/api && npm run build -w @medsafe/web",
     "test": "npm run test -w @medsafe/api",
     "db:generate": "npm run db:generate -w @medsafe/api",
-    "db:migrate": "npm run db:migrate -w @medsafe/api"
+    "db:migrate": "npm run db:migrate -w @medsafe/api",
+    "db:seed": "npm run db:seed -w @medsafe/api"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

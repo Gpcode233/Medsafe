@@ -2,39 +2,27 @@
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
+  api, ApiError, assessMedicineStatus, DEMO_ORG_ID, DEMO_USER_ID, formatEventType, type MedicineLedger,
+} from "@/lib/api-client";
+import {
+  navigationForRole, OVERVIEW_METRICS, pageMeta, ROLE_OPTIONS, ROLE_WORKSPACES,
+  verifyActionLabel, type PageKey, type VerifyAction, type WorkspaceRole,
+} from "@/lib/role-config";
+import {
   Archive, Bell, Buildings, CaretDown, ChartBar, CheckCircle, ClipboardText,
   ClockCounterClockwise, Factory, FileText, FirstAid, Funnel, IdentificationCard,
   List, MagnifyingGlass, MapTrifold, Package, Plus, QrCode, ShieldCheck, SignOut,
   Siren, SlidersHorizontal, Truck, UserCircle, UsersThree, Warning, X
 } from "@/components/solar-icons";
-import { createElement, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { createElement, FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 
-type Role = "Regulator" | "Manufacturer" | "Pharmacist" | "Hospital" | "Clinic" | "Dispenser";
-type PageKey = "overview" | "alerts" | "shipments" | "inventory" | "trace" | "entities" | "compliance" | "reports" | "recalls" | "audit" | "verify";
-type Session = { name: string; email: string; role: Role; verified: boolean };
-type Icon = (props: { size?: number; weight?: "regular" | "duotone" | "fill"; className?: string }) => ReactNode;
-
-const roles: { role: Role; label: string; description: string; icon: Icon }[] = [
-  { role: "Regulator", label: "Regulator", description: "National or state medicine oversight", icon: ShieldCheck },
-  { role: "Manufacturer", label: "Manufacturer", description: "Production, release and downstream custody", icon: Factory },
-  { role: "Pharmacist", label: "Pharmacy / Pharmacist", description: "Verification, dispensing and stock control", icon: FirstAid },
-  { role: "Hospital", label: "Hospital", description: "Facility inventory and clinical supply", icon: Buildings },
-  { role: "Clinic", label: "Clinic", description: "Point-of-care medicine operations", icon: FirstAid },
-  { role: "Dispenser", label: "Licensed Dispenser", description: "Verified dispensing and stock custody", icon: IdentificationCard },
-];
-
-const navigation: { key: PageKey; label: string; icon: Icon; roles?: Role[]; badge?: string }[] = [
-  { key: "overview", label: "Overview", icon: MapTrifold },
-  { key: "alerts", label: "Alerts & incidents", icon: Siren, badge: "15" },
-  { key: "shipments", label: "Shipments", icon: Truck },
-  { key: "inventory", label: "Inventory", icon: Archive, roles: ["Pharmacist", "Hospital", "Clinic", "Dispenser"] },
-  { key: "trace", label: "Drug traceability", icon: ClockCounterClockwise },
-  { key: "entities", label: "Licenses & entities", icon: IdentificationCard, roles: ["Regulator", "Manufacturer"] },
-  { key: "compliance", label: "Compliance", icon: ShieldCheck },
-  { key: "reports", label: "Reports & analytics", icon: ChartBar },
-  { key: "recalls", label: "Recall management", icon: Package, roles: ["Regulator", "Manufacturer", "Pharmacist", "Hospital"] },
-  { key: "audit", label: "Audit trail", icon: FileText },
-];
+type Session = {
+  name: string;
+  email: string;
+  role: WorkspaceRole;
+  verified: boolean;
+  claimId?: string;
+};
 
 const incidents = [
   { id: "ALT-2026-0612-007", severity: "Critical", type: "Suspected counterfeit", product: "Paracetamol 500mg", location: "Kano", status: "Active" },
@@ -67,20 +55,6 @@ const ledger = [
   { time: "15 Jun 2026 09:15", event: "Received", actor: "LUTH Pharmacy, Idi-Araba", qty: "200", hash: "c8e4f55a2b6e1a9d", status: "Confirmed" },
 ];
 
-const pageMeta: Record<PageKey, { title: string; description: string }> = {
-  overview: { title: "National medicine overview", description: "Live integrity, movement and compliance signals across the supply chain." },
-  alerts: { title: "Alerts & incidents", description: "Triage integrity threats, assign investigations and coordinate response." },
-  shipments: { title: "Shipment tracking", description: "Monitor custody transfers, route risk, ETAs and delivery exceptions." },
-  inventory: { title: "Medicine inventory", description: "Control stock by batch, expiry, availability and storage condition." },
-  trace: { title: "Drug traceability", description: "Follow every serialized unit from manufacture to dispensing." },
-  entities: { title: "Licenses & entities", description: "Verify organizations, practitioners, premises and operating permissions." },
-  compliance: { title: "Compliance monitoring", description: "Track obligations, exceptions and corrective actions by stakeholder." },
-  reports: { title: "Reports & analytics", description: "Generate decision-ready supply, risk and compliance intelligence." },
-  recalls: { title: "Recall management", description: "Locate affected units, notify custodians and measure recovery progress." },
-  audit: { title: "Audit trail", description: "Review immutable activity events across all MedSafe services." },
-  verify: { title: "Scan & verify medicine", description: "Validate product identity, serialization and current chain of custody." },
-};
-
 export function MedSafeApp() {
   const [session, setSession] = useState<Session | null>(null);
   const [pending, setPending] = useState<Omit<Session, "verified"> | null>(null);
@@ -110,10 +84,19 @@ export function MedSafeApp() {
 
   if (!session && !pending) return <LoginPage onContinue={setPending} />;
   if (!session && pending) {
-    return <VerificationGate applicant={pending} onBack={() => setPending(null)} onComplete={verified => setSession({ ...pending, verified })} />;
+    return (
+      <VerificationGate
+        applicant={pending}
+        onBack={() => setPending(null)}
+        onComplete={(verified, claimId) => {
+          setSession({ ...pending, verified, claimId });
+          setPage(ROLE_WORKSPACES[pending.role].defaultPage);
+        }}
+      />
+    );
   }
 
-  const availableNavigation = navigation.filter(item => !item.roles || item.roles.includes(session!.role));
+  const availableNavigation = navigationForRole(session!.role);
   const changePage = (next: PageKey) => {
     setPage(next);
     setSidebarOpen(false);
@@ -154,8 +137,8 @@ export function MedSafeApp() {
 function LoginPage({ onContinue }: { onContinue: (session: Omit<Session, "verified">) => void }) {
   const [name, setName] = useState("Adegoke Ibrahim");
   const [email, setEmail] = useState("adegoke@medsafe.ng");
-  const [role, setRole] = useState<Role>("Regulator");
-  const selected = roles.find(item => item.role === role)!;
+  const [role, setRole] = useState<WorkspaceRole>("Regulator");
+  const selected = ROLE_OPTIONS.find(item => item.role === role)!;
   const submit = (event: FormEvent) => {
     event.preventDefault();
     onContinue({ name: name.trim() || "MedSafe User", email: email.trim() || "user@medsafe.ng", role });
@@ -185,12 +168,12 @@ function LoginPage({ onContinue }: { onContinue: (session: Omit<Session, "verifi
           <label className="field"><span>Work email</span><input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@organization.ng" required /></label>
           <label className="field">
             <span>User role</span>
-            <Select value={role} onValueChange={value => setRole(value as Role)}>
+            <Select value={role} onValueChange={value => setRole(value as WorkspaceRole)}>
               <SelectTrigger className="role-select" startIcon={createElement(selected.icon, { size: 20, weight: "duotone" })}>
                 <SelectValue placeholder="Select a role" />
               </SelectTrigger>
               <SelectContent>
-                {roles.map(item => <SelectItem key={item.role} value={item.role}>{item.label}</SelectItem>)}
+                {ROLE_OPTIONS.map(item => <SelectItem key={item.role} value={item.role}>{item.label}</SelectItem>)}
               </SelectContent>
             </Select>
             <small>{selected.description}</small>
@@ -206,12 +189,33 @@ function LoginPage({ onContinue }: { onContinue: (session: Omit<Session, "verifi
 function VerificationGate({ applicant, onBack, onComplete }: {
   applicant: Omit<Session, "verified">;
   onBack: () => void;
-  onComplete: (verified: boolean) => void;
+  onComplete: (verified: boolean, claimId?: string) => void;
 }) {
   const [license, setLicense] = useState("");
   const [organization, setOrganization] = useState("");
-  const isRegulator = applicant.role === "Regulator";
-  const isManufacturer = applicant.role === "Manufacturer";
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const workspace = ROLE_WORKSPACES[applicant.role];
+
+  const submit = async () => {
+    setSubmitting(true);
+    setError("");
+    try {
+      const claim = await api.submitVerificationClaim({
+        userId: DEMO_USER_ID,
+        organizationId: DEMO_ORG_ID,
+        requestedRole: workspace.platformRole,
+        licenseNumber: license.trim(),
+        regulator: organization.trim(),
+      });
+      onComplete(false, claim.id);
+    } catch (err) {
+      setError(err instanceof ApiError ? "Could not reach MedSafe API. Start the API and run db:seed." : "Verification submission failed.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <main className="verification-gate">
       <div className="verification-shell">
@@ -224,15 +228,18 @@ function VerificationGate({ applicant, onBack, onComplete }: {
           <p>Role selection is a claim. MedSafe validates identity, professional or organization status, and current authorization before enabling transactions.</p>
           <div className="applicant-summary"><UserCircle size={36} weight="duotone" /><div><b>{applicant.name}</b><span>{applicant.email} · {applicant.role}</span></div></div>
           <div className="form-grid">
-            <label className="field"><span>{isRegulator ? "Agency staff ID" : isManufacturer ? "NAFDAC establishment number" : "Professional registration number"}</span><input value={license} onChange={e => setLicense(e.target.value)} placeholder={isRegulator ? "e.g. NAF/HQ/10482" : isManufacturer ? "e.g. MAN-002918" : "e.g. PCN-123456"} /></label>
-            <label className="field"><span>{isRegulator ? "Agency / directorate" : "Organization / facility"}</span><input value={organization} onChange={e => setOrganization(e.target.value)} placeholder={isRegulator ? "NAFDAC, Investigation & Enforcement" : "Registered organization name"} /></label>
+            <label className="field"><span>{workspace.licenseFieldLabel}</span><input value={license} onChange={e => setLicense(e.target.value)} placeholder={workspace.licensePlaceholder} /></label>
+            <label className="field"><span>{workspace.organizationFieldLabel}</span><input value={organization} onChange={e => setOrganization(e.target.value)} placeholder={workspace.organizationPlaceholder} /></label>
           </div>
           <button className="upload-zone" type="button"><IdentificationCard size={28} weight="duotone" /><span><b>Upload supporting credential</b><small>License, appointment letter or premises certificate · PDF, JPG or PNG</small></span><Plus /></button>
           <div className="verification-notice"><ShieldCheck weight="duotone" /><p><b>A document alone does not prove entitlement.</b> Production verification will reconcile identity, registry status, organization control, expiry, sanctions and reviewer approval.</p></div>
+          {error && <p className="verify-error">{error}</p>}
           <div className="verification-actions">
             <button className="button ghost" onClick={onBack}>Back</button>
             <button className="button secondary" onClick={() => onComplete(false)}>Skip for development</button>
-            <button className="button primary" onClick={() => onComplete(true)} disabled={!license || !organization}>Submit verification</button>
+            <button className="button primary" onClick={() => void submit()} disabled={!license || !organization || submitting}>
+              {submitting ? "Submitting..." : "Submit verification"}
+            </button>
           </div>
           <small className="dev-note">Development bypass is visibly marked and must be disabled outside non-production environments.</small>
         </section>
@@ -242,7 +249,7 @@ function VerificationGate({ applicant, onBack, onComplete }: {
 }
 
 function Sidebar({ role, page, items, open, onNavigate, onClose }: {
-  role: Role; page: PageKey; items: typeof navigation; open: boolean; onNavigate: (page: PageKey) => void; onClose: () => void;
+  role: WorkspaceRole; page: PageKey; items: ReturnType<typeof navigationForRole>; open: boolean; onNavigate: (page: PageKey) => void; onClose: () => void;
 }) {
   return (
     <>
@@ -283,7 +290,7 @@ function Topbar({ session, search, onSearch, onMenu, onPalette, onVerify, onLogo
         <div className="profile-wrap">
           <button className="profile" onClick={() => setProfileOpen(open => !open)}>
             <span className="avatar">{initials(session.name)}</span>
-            <span className="profile-copy"><b>{session.name}</b><small>{session.role}{session.verified ? " · Verified" : " · Dev access"}</small></span>
+            <span className="profile-copy"><b>{session.name}</b><small>{session.role}{sessionStatus(session)}</small></span>
             <CaretDown />
           </button>
           {profileOpen && <div className="profile-menu">
@@ -314,7 +321,7 @@ function PageHeading({ page, onAction }: { page: PageKey; onAction: () => void }
 }
 
 function PageContent({ page, role, search, notify, navigate }: {
-  page: PageKey; role: Role; search: string; notify: (message: string) => void; navigate: (page: PageKey) => void;
+  page: PageKey; role: WorkspaceRole; search: string; notify: (message: string) => void; navigate: (page: PageKey) => void;
 }) {
   if (page === "overview") return <Overview role={role} notify={notify} navigate={navigate} />;
   if (page === "alerts") return <AlertsPage search={search} notify={notify} />;
@@ -329,28 +336,146 @@ function PageContent({ page, role, search, notify, navigate }: {
   return <VerifyPage role={role} notify={notify} />;
 }
 
-function Overview({ role, notify, navigate }: { role: Role; notify: (message: string) => void; navigate: (page: PageKey) => void }) {
-  const careRole = ["Pharmacist", "Hospital", "Clinic", "Dispenser"].includes(role);
-  const metrics = careRole
-    ? [["Units on hand", "22,490", "+1,220 this week"], ["Verified scans", "3,842", "99.2% genuine"], ["Expiring ≤90 days", "6,470", "₦59.2M value"], ["Open exceptions", "8", "2 require action"]]
-    : [["Tracked medicine units", "104,238", "+4,812 today"], ["Authenticity scans", "58,693", "88.4% genuine"], ["Active alerts", "27", "15 critical"], ["Shipments in transit", "182", "83.5% on time"]];
+function Overview({ role, notify, navigate }: { role: WorkspaceRole; notify: (message: string) => void; navigate: (page: PageKey) => void }) {
+  const workspace = ROLE_WORKSPACES[role];
+  const metrics = OVERVIEW_METRICS[workspace.overviewMetrics];
+
+  const focusContent = {
+    Regulator: {
+      badge: "Priority Incident",
+      badgeType: "danger",
+      title: "Suspected Counterfeit Detected",
+      status: "Critical",
+      details: [
+        ["Alert ID", "ALRT-2026-0612-007"], ["Detected", "12 Jun 2026 · 21:18 WAT"],
+        ["Product", "Paracetamol 500mg"], ["Location", "Kano Municipal Market"],
+        ["Batch", "PCT500-04125"], ["Units affected", "240 units"]
+      ],
+      confidence: "98% counterfeit confidence",
+      primaryBtn: "Open NAFDAC Investigation",
+      primaryMsg: "NAFDAC Investigation case opened and audit logged",
+      secondaryBtn: "View all alerts",
+      secondaryTarget: "alerts" as PageKey
+    },
+    Manufacturer: {
+      badge: "Batch Release Clearance",
+      badgeType: "primary",
+      title: "Batch PCT500-04125 Ready for Dispatch",
+      status: "Verified",
+      details: [
+        ["GTIN", "061540012345678"], ["Quantity", "10,000 serialized units"],
+        ["NAFDAC Reg No", "A4-9182"], ["Manufactured", "10 Jun 2026 · 08:00 WAT"],
+        ["QC Passed", "100% Purity & Strength"], ["Hash Chain", "Verified e2e"]
+      ],
+      confidence: "100% Serialization Integrity",
+      primaryBtn: "Authorize Downstream Dispatch",
+      primaryMsg: "Batch authorized for distributor dispatch",
+      secondaryBtn: "View serialization trace",
+      secondaryTarget: "trace" as PageKey
+    },
+    Distributor: {
+      badge: "Active Transport Manifest",
+      badgeType: "warning",
+      title: "Shipment TRK-2026-0958 In Transit",
+      status: "On Time",
+      details: [
+        ["Route", "Lagos Depot → Kano Hub"], ["Carrier", "Swift Logistics Nig"],
+        ["Product", "Coartem 20/120mg"], ["Payload", "12,400 units"],
+        ["Cold Chain", "Maintain 2°C - 8°C"], ["ETA", "14 Jun 2026 · 16:30"]
+      ],
+      confidence: "Optimal Cold-Chain Telemetry",
+      primaryBtn: "Log Depot Handoff",
+      primaryMsg: "Depot receipt scanner activated",
+      secondaryBtn: "View all shipments",
+      secondaryTarget: "shipments" as PageKey
+    },
+    Pharmacist: {
+      badge: "Inventory Expiry Alert",
+      badgeType: "warning",
+      title: "6,470 Units Expiring ≤ 90 Days",
+      status: "Action Required",
+      details: [
+        ["High Risk Batch", "AMX500-9182 (Amoxicillin)"], ["Expiry Date", "July 2026"],
+        ["On-Hand Stock", "4,320 units"], ["Total Value", "₦59,200,000"],
+        ["Supplier", "NorthStar Pharma"], ["PCN Status", "Active License"]
+      ],
+      confidence: "First-Expiry First-Out (FEFO) Alert",
+      primaryBtn: "Initiate Stock Discount / Transfer",
+      primaryMsg: "Stock transfer recommendation generated",
+      secondaryBtn: "Check Inventory",
+      secondaryTarget: "inventory" as PageKey
+    },
+    Hospital: {
+      badge: "Clinical Supply Alert",
+      badgeType: "warning",
+      title: "Insulin 100IU Low Stock Level",
+      status: "Reorder Needed",
+      details: [
+        ["Department", "Central Ward Dispensary"], ["On-Hand", "860 units (3 days supply)"],
+        ["Reorder Threshold", "1,500 units"], ["Storage Temp", "3.4°C (Normal)"],
+        ["HMO Approved", "NHIA / Private HMOs"], ["Last Restock", "04 Jun 2026"]
+      ],
+      confidence: "Clinical Continuity Guaranteed",
+      primaryBtn: "Submit Restock Order",
+      primaryMsg: "Reorder purchase request submitted to distributor",
+      secondaryBtn: "Manage Inventory",
+      secondaryTarget: "inventory" as PageKey
+    },
+    Clinic: {
+      badge: "Point-of-Care Stock",
+      badgeType: "primary",
+      title: "Vaccine & Essential Drug Inventory",
+      status: "Healthy",
+      details: [
+        ["Facility", "Primary Health Centre, Garki"], ["Storage Condition", "2.8°C (Cold Chain OK)"],
+        ["Verified Today", "142 units"], ["Pending Dispense", "18 prescriptions"],
+        ["Regulator", "FCT Primary Care Board"], ["Last Audit", "10 Jun 2026"]
+      ],
+      confidence: "100% Authentic Stock Verified",
+      primaryBtn: "Scan & Dispense Medicine",
+      primaryMsg: "Opening dispensing scanner",
+      secondaryBtn: "View Scan History",
+      secondaryTarget: "trace" as PageKey
+    },
+    Dispenser: {
+      badge: "Point of Sale Terminal",
+      badgeType: "primary",
+      title: "Quick Medicine Verification",
+      status: "Terminal Ready",
+      details: [
+        ["License", "PCN Practitioner #104829"], ["Terminal ID", "POS-LAG-0042"],
+        ["Regulated Price (MRP)", "Enforced on Scans"], ["Expiry Hard-Lock", "Enabled"],
+        ["NDLEA Controlled Checks", "Active"], ["Scans Today", "148 verified"]
+      ],
+      confidence: "Instant Anti-Counterfeit Validation",
+      primaryBtn: "Scan Product Barcode / QR",
+      primaryMsg: "Barcode scanner ready",
+      secondaryBtn: "Open Verification Workspace",
+      secondaryTarget: "verify" as PageKey
+    }
+  }[role];
+
   return (
     <>
       <section className="metrics">{metrics.map(([label, value, detail], index) => <Metric key={label} label={label} value={value} detail={detail} index={index} />)}</section>
       <div className="overview-grid">
         <SupplyMap onRoute={route => notify(`${route} route selected`)} />
         <section className="focus-panel">
-          <div className="panel-heading"><div><span className="eyebrow danger">Priority incident</span><h2>Suspected counterfeit detected</h2></div><Status value="Critical" /></div>
-          <div className="incident-summary">
-            <Info label="Alert ID" value="ALRT-2026-0612-007" /><Info label="Detected" value="12 Jun 2026 · 21:18 WAT" />
-            <Info label="Product" value="Paracetamol 500mg" /><Info label="Location" value="Kano Municipal Market" />
-            <Info label="Batch" value="PCT500-04125" /><Info label="Units affected" value="240 units" />
+          <div className="panel-heading">
+            <div><span className={`eyebrow ${focusContent.badgeType}`}>{focusContent.badge}</span><h2>{focusContent.title}</h2></div>
+            <Status value={focusContent.status} />
           </div>
-          <div className="confidence"><span><b>98%</b> counterfeit confidence</span><i><em /></i></div>
-          <div className="button-row"><button className="button primary" onClick={() => notify("Investigation case opened and audit logged")}>Open investigation</button><button className="button ghost" onClick={() => navigate("alerts")}>View all alerts</button></div>
+          <div className="incident-summary">
+            {focusContent.details.map(([label, val]) => <Info key={label} label={label} value={val} />)}
+          </div>
+          <div className="confidence"><span><b>{focusContent.confidence}</b></span><i><em /></i></div>
+          <div className="button-row">
+            <button className="button primary" onClick={() => notify(focusContent.primaryMsg)}>{focusContent.primaryBtn}</button>
+            <button className="button ghost" onClick={() => navigate(focusContent.secondaryTarget)}>{focusContent.secondaryBtn}</button>
+          </div>
         </section>
         <section className="data-panel span-2">
-          <div className="panel-heading"><div><span className="eyebrow">Live operations</span><h2>Recent integrity signals</h2></div><button className="text-button" onClick={() => navigate("alerts")}>View all incidents →</button></div>
+          <div className="panel-heading"><div><span className="eyebrow">Live operations</span><h2>Recent integrity signals ({role} view)</h2></div><button className="text-button" onClick={() => navigate("alerts")}>View all incidents →</button></div>
           <DataTable headers={["Incident", "Severity", "Type", "Product", "Location", "Status"]}>
             {incidents.slice(0, 4).map(row => <tr key={row.id}><td><b>{row.id}</b></td><td><Status value={row.severity} /></td><td>{row.type}</td><td>{row.product}</td><td>{row.location}</td><td><Status value={row.status} /></td></tr>)}
           </DataTable>
@@ -398,15 +523,43 @@ function ShipmentsPage({ search, notify }: { search: string; notify: (message: s
   </CollectionPage>;
 }
 
-function InventoryPage({ search, notify }: { search: string; notify: (message: string) => void }) {
+function InventoryPage({ role, search, notify }: { role: WorkspaceRole; search: string; notify: (message: string) => void }) {
   const [status, setStatus] = useState("All");
   const filtered = inventory.filter(row => (status === "All" || row.status === status) && matches(row, search));
-  return <CollectionPage stats={[["Units on hand", "22,490"], ["Available", "21,458"], ["Quarantined", "612"], ["Expiring ≤90 days", "6,470"]]}>
-    <Toolbar searchLabel="Filter inventory" value={status} options={["All", "Healthy", "Expiring", "Cold chain"]} onChange={setStatus} />
-    <DataTable headers={["Medicine", "Batch / lot", "On hand", "Available", "Expiry", "Condition", ""]}>
-      {filtered.map(row => <tr key={row.batch}><td><b>{row.product}</b></td><td><code>{row.batch}</code></td><td>{row.onHand.toLocaleString()}</td><td>{row.available.toLocaleString()}</td><td>{row.expiry}</td><td><Status value={row.status} /></td><td><button className="table-action" onClick={() => notify(`${row.batch} stock adjustment opened`)}>Adjust</button></td></tr>)}
-    </DataTable>
-  </CollectionPage>;
+  
+  return (
+    <CollectionPage stats={[
+      ["Units on hand", "22,490"],
+      ["Stock-In (Received ⬆)", "+3,410 this week"],
+      ["Stock-Out (Dispensed ⬇)", "-1,980 this week"],
+      ["Expiring ≤90 days", "6,470 (FEFO Risk)"]
+    ]}>
+      <Toolbar searchLabel="Filter inventory by condition" value={status} options={["All", "Healthy", "Expiring", "Cold chain"]} onChange={setStatus} />
+      <DataTable headers={["Medicine Product", "Batch / Lot", "Stock On Hand", "Stock Movement", "Available", "Expiry FEFO", "Condition", "Actions"]}>
+        {filtered.map(row => (
+          <tr key={row.batch}>
+            <td><b>{row.product}</b></td>
+            <td><code>{row.batch}</code></td>
+            <td><b>{row.onHand.toLocaleString()} units</b></td>
+            <td>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", color: row.onHand > 5000 ? "#137333" : "#b06000", fontWeight: 600 }}>
+                {row.onHand > 5000 ? "⬆ Received (+1,200)" : "⬇ Dispensing High (-840)"}
+              </span>
+            </td>
+            <td>{row.available.toLocaleString()}</td>
+            <td><span style={{ color: row.status === "Expiring" ? "#c5221f" : "inherit", fontWeight: row.status === "Expiring" ? 700 : 400 }}>{row.expiry}</span></td>
+            <td><Status value={row.status} /></td>
+            <td>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <button className="table-action" onClick={() => notify(`Dispensed 1 unit of ${row.batch}`)}>⬇ Dispense</button>
+                <button className="table-action" onClick={() => notify(`Received stock for ${row.batch}`)}>⬆ Restock</button>
+              </div>
+            </td>
+          </tr>
+        ))}
+      </DataTable>
+    </CollectionPage>
+  );
 }
 
 function TracePage({ search }: { search: string }) {
@@ -449,14 +602,81 @@ function AuditPage() {
   return <section className="data-panel"><div className="panel-heading"><div><span className="eyebrow">Immutable events</span><h2>13 June 2026</h2></div><button className="button ghost"><SlidersHorizontal /> Event filters</button></div><DataTable headers={["Time (WAT)", "Actor", "Event", "Resource", "Origin", "Result"]}>{rows.map(row => <tr key={row[0]}><td><code>{row[0]}</code></td><td><b>{row[1]}</b></td><td><code>{row[2]}</code></td><td>{row[3]}</td><td>{row[4]}</td><td><Status value={row[5]} /></td></tr>)}</DataTable></section>;
 }
 
-function VerifyPage({ role, notify }: { role: Role; notify: (message: string) => void }) {
+function VerifyPage({ role, notify }: { role: WorkspaceRole; notify: (message: string) => void }) {
   const [code, setCode] = useState("61540012345678");
   const [result, setResult] = useState<"idle" | "genuine" | "suspicious">("idle");
-  const verify = () => { const next = code.endsWith("9") ? "suspicious" : "genuine"; setResult(next); notify("Verification event written to the audit trail"); };
-  return <div className="verify-layout"><section className="scanner-panel"><div className="scan-visual"><QrCode size={84} weight="duotone" /></div><span className="eyebrow">Serialized product check</span><h2>Scan or enter a medicine code</h2><p>Enter a GTIN, serial number or MedSafe QR payload. Every request is tied to your {role} identity.</p><label className="verify-input"><input value={code} onChange={e => setCode(e.target.value)} placeholder="GTIN or serial number" /><button onClick={verify}>Verify medicine</button></label><small>Try a code ending in 9 to preview a suspicious result.</small></section><section className={`result-panel ${result}`}><div className="result-head">{result === "idle" ? <QrCode weight="duotone" /> : result === "genuine" ? <CheckCircle weight="fill" /> : <Warning weight="fill" />}<div><span className="eyebrow">Verification result</span><h2>{result === "idle" ? "Awaiting scan" : result === "genuine" ? "Genuine medicine" : "Suspicious medicine"}</h2><p>{result === "idle" ? "Product and custody details will appear here." : result === "genuine" ? "Identity and current custody are valid." : "Duplicate scan pattern detected. Do not dispense."}</p></div></div>{result !== "idle" && <div className="result-details"><Info label="Product" value="Paracetamol Tablets BP 500mg" /><Info label="Batch" value="PCT500-04125" /><Info label="Manufacturer" value="Novartis Pharma Nig. Ltd" /><Info label="Current custodian" value="LUTH Pharmacy, Idi-Araba" /><Info label="Expiry" value="March 2027" /><Info label="Last event" value="Received · 15 Jun 2026" /></div>}</section>{result !== "idle" && <section className="data-panel full"><div className="panel-heading"><div><span className="eyebrow">Custody evidence</span><h2>Medicine journey</h2></div></div><TraceTimeline /></section>}</div>;
+  const verify = () => {
+    const next = code.endsWith("9") ? "suspicious" : "genuine";
+    setResult(next);
+    notify(`Verification event logged for ${role} identity.`);
+  };
+
+  return (
+    <div className="verify-layout">
+      <section className="scanner-panel">
+        <div className="scan-visual"><QrCode size={84} weight="duotone" /></div>
+        <span className="eyebrow">{role} Verification Terminal</span>
+        <h2>Scan or enter a medicine code</h2>
+        <p>Validate product GTIN, batch expiry hard-lock, regulated benchmark price (MRP), and custody chain under your <b>{role}</b> identity.</p>
+        <label className="verify-input">
+          <input value={code} onChange={e => setCode(e.target.value)} placeholder="GTIN or serial number (e.g. 61540012345678)" />
+          <button onClick={verify}>Verify medicine</button>
+        </label>
+        <small>Tip: Enter a code ending in 9 to preview a suspicious alert result.</small>
+      </section>
+
+      <section className={`result-panel ${result}`}>
+        <div className="result-head">
+          {result === "idle" ? <QrCode weight="duotone" /> : result === "genuine" ? <CheckCircle weight="fill" /> : <Warning weight="fill" />}
+          <div>
+            <span className="eyebrow">Verification result</span>
+            <h2>{result === "idle" ? "Awaiting scan" : result === "genuine" ? "GENUINE MEDICINE" : "SUSPICIOUS / COUNTERFEIT ALERT"}</h2>
+            <p>{result === "idle" ? "Product, price, expiry and custody details will render upon scan." : result === "genuine" ? "Product serialization and current chain-of-custody are valid." : "Duplicate scan pattern detected. Do not dispense!"}</p>
+          </div>
+        </div>
+
+        {result !== "idle" && (
+          <div className="result-details">
+            <Info label="Product Name" value="Paracetamol Tablets BP 500mg" />
+            <Info label="Batch / Lot" value="PCT500-04125" />
+            <Info label="Manufacturer" value="Novartis Pharma Nig. Ltd" />
+            <Info label="Current Custodian" value="LUTH Pharmacy, Idi-Araba" />
+            <Info label="Expiry Status" value={result === "genuine" ? "VALID (March 2027)" : "EXPIRED / UNVERIFIED"} />
+            <Info label="Regulated Price (MRP)" value="₦1,200 / pack (Uniform Pricing)" />
+            <Info label="Controlled Substance" value="No (OTC Category)" />
+            <Info label="Last Custody Event" value="Received · 15 Jun 2026" />
+          </div>
+        )}
+
+        {result !== "idle" && (
+          <div className="button-row" style={{ marginTop: "1.25rem" }}>
+            {role === "Regulator" && (
+              <button className="button primary" onClick={() => notify("Incident flagged for NAFDAC investigation")}>Flag Counterfeit to NAFDAC</button>
+            )}
+            {(role === "Pharmacist" || role === "Dispenser" || role === "Hospital" || role === "Clinic") && (
+              <button className="button primary" onClick={() => notify("Medicine dispense recorded and removed from inventory")}>Dispense Medicine & Log Sale</button>
+            )}
+            {(role === "Manufacturer" || role === "Distributor") && (
+              <button className="button primary" onClick={() => notify("Custody transfer scan recorded in chain of custody")}>Record Custody Handoff</button>
+            )}
+            <button className="button ghost" onClick={() => notify("Price gouging report submitted for review")}>Report Price Gouging</button>
+          </div>
+        )}
+      </section>
+
+      {result !== "idle" && (
+        <section className="data-panel full">
+          <div className="panel-heading">
+            <div><span className="eyebrow">Cryptographic ledger</span><h2>Immutable chain-of-custody timeline</h2></div>
+          </div>
+          <TraceTimeline />
+        </section>
+      )}
+    </div>
+  );
 }
 
-function CommandPalette({ items, onClose, onNavigate }: { items: typeof navigation; onClose: () => void; onNavigate: (page: PageKey) => void }) {
+function CommandPalette({ items, onClose, onNavigate }: { items: ReturnType<typeof navigationForRole>; onClose: () => void; onNavigate: (page: PageKey) => void }) {
   const [query, setQuery] = useState("");
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => input.current?.focus(), []);
@@ -514,4 +734,8 @@ function actionForPage(page: PageKey) {
     reports: "Report builder opened", recalls: "Recall workflow started", entities: "Verification queue opened", verify: "Scanner connection requested"
   };
   return messages[page] || "Action completed";
+}
+
+function sessionStatus(session: Session) {
+  return session.verified ? " · Verified" : " · Pending verification";
 }
