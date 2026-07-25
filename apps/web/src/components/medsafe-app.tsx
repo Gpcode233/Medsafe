@@ -326,7 +326,7 @@ function PageContent({ page, role, search, notify, navigate }: {
   if (page === "overview") return <Overview role={role} notify={notify} navigate={navigate} />;
   if (page === "alerts") return <AlertsPage search={search} notify={notify} />;
   if (page === "shipments") return <ShipmentsPage search={search} notify={notify} />;
-  if (page === "inventory") return <InventoryPage search={search} notify={notify} />;
+  if (page === "inventory") return <InventoryPage role={role} search={search} notify={notify} />;
   if (page === "trace") return <TracePage search={search} />;
   if (page === "entities") return <EntitiesPage notify={notify} />;
   if (page === "compliance") return <CompliancePage notify={notify} />;
