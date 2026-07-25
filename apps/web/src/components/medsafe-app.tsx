@@ -653,7 +653,7 @@ function VerifyPage({ role, notify }: { role: WorkspaceRole; notify: (message: s
             {role === "Regulator" && (
               <button className="button primary" onClick={() => notify("Incident flagged for NAFDAC investigation")}>Flag Counterfeit to NAFDAC</button>
             )}
-            {(role === "Pharmacist" || role === "Dispenser" || role === "Hospital" || role === "Clinic") && (
+            {(role === "Pharmacist" || role === "Hospital" || role === "Clinic") && (
               <button className="button primary" onClick={() => notify("Medicine dispense recorded and removed from inventory")}>Dispense Medicine & Log Sale</button>
             )}
             {(role === "Manufacturer" || role === "Distributor") && (
