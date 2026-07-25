@@ -1,5 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { createHash, randomUUID } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "./prisma.service";
 
 type Transfer = { actorId: string; senderOrganizationId: string; receiverOrganizationId: string; eventType: string; quantity: number; latitude: number; longitude: number };
@@ -15,7 +16,7 @@ export class TraceabilityService {
   }
 
   async transfer(serial: string, input: Transfer) {
-    return this.prisma.$transaction(async tx => {
+    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const unit = await tx.medicineUnit.findUnique({
         where: { serial },
         include: { batch: { include: { product: true } } },

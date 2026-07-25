@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { createHash, randomUUID } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "./prisma.service";
 
 type SubmitClaim = { userId: string; organizationId: string; requestedRole: string; licenseNumber: string; regulator: string };
@@ -17,7 +18,7 @@ export class VerificationService {
   }
 
   async submitClaim(input: SubmitClaim) {
-    return this.prisma.$transaction(async tx => {
+    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const claim = await tx.verificationClaim.create({
         data: {
           userId: input.userId,
@@ -38,12 +39,12 @@ export class VerificationService {
   async reviewClaim(id: string, input: ReviewClaim) {
     const existing = await this.prisma.verificationClaim.findUnique({ where: { id }, include: { checks: true } });
     if (!existing) throw new NotFoundException("Verification claim not found");
-    const passed = existing.checks.every(check => check.status === "PASSED");
+    const passed = existing.checks.every((check: { status: string }) => check.status === "PASSED");
     if (input.decision === "APPROVE" && !passed) {
       return { accepted: false, reason: "All mandatory assurance checks must pass before approval." };
     }
     const status = input.decision === "APPROVE" ? "VERIFIED" : input.decision === "REJECT" ? "REJECTED" : "IN_REVIEW";
-    return this.prisma.$transaction(async tx => {
+    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const claim = await tx.verificationClaim.update({ where: { id }, data: { status, reviewedById: input.reviewerId, reviewedAt: new Date(), reviewReason: input.reason } });
       if (input.decision === "APPROVE") {
         await tx.roleEntitlement.create({
